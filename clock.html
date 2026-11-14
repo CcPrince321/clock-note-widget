@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>时钟窗口</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: transparent; overflow: hidden; }
+    .widget {
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      background: rgba(24, 26, 32, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      overflow: hidden;
+      color: #ececec;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+    /* 拖动条：仅这块 36px 区域可拖动窗口 */
+    .dragbar {
+      flex: none;
+      height: 36px;
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: rgba(255, 255, 255, 0.55);
+    }
+    .dragbar .controls {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+    .ctrl-btn {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.75);
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .ctrl-btn:hover { background: rgba(255, 255, 255, 0.14); }
+
+    /* ---- 设置面板（从右上角弹出） ---- */
+    .settings {
+      position: absolute;
+      top: 40px;
+      right: 10px;
+      width: 210px;
+      background: rgba(34, 37, 44, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 10px 12px;
+      z-index: 10;
+      display: none;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      -webkit-app-region: no-drag;
+      font-size: 12px;
+    }
+    .settings.open { display: block; }
+    .settings .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 0;
+      gap: 8px;
+    }
+    .settings .row + .row { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+    .settings .row-label { color: rgba(255, 255, 255, 0.6); white-space: nowrap; }
+    .settings .seg { display: flex; gap: 4px; }
+    .settings .seg button {
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: transparent;
+      color: rgba(255, 255, 255, 0.65);
+      border-radius: 5px;
+      padding: 3px 8px;
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .settings .seg button.on {
+      background: rgba(74, 144, 255, 0.35);
+      border-color: rgba(74, 144, 255, 0.7);
+      color: #fff;
+    }
+    .settings .hint { margin-top: 6px; font-size: 10px; color: rgba(255, 255, 255, 0.35); text-align: center; }
+    .row.analog-only { display: none; }
+    .widget.analog .row.analog-only { display: flex; }
+    .widget.analog .row.digital-only { display: none; }
+
+    /* 正文区域不可拖动 */
+    .content {
+      flex: 1;
+      -webkit-app-region: no-drag;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px 16px;
+    }
+    /* ---- 数字模式 ---- */
+    .time { display: flex; align-items: baseline; font-variant-numeric: tabular-nums; }
+    .time .hm { font-size: 44px; font-weight: 600; letter-spacing: 2px; line-height: 1; }
+    .time .suffix {
+      margin-left: 8px; font-size: 13px; font-weight: 600;
+      color: rgba(255, 255, 255, 0.65); min-width: 2.2em;
+    }
+    .time .ss { font-size: 16px; font-weight: 400; color: rgba(255, 255, 255, 0.55); margin-left: 8px; line-height: 1.2; }
+    .date { font-size: 14px; color: rgba(255, 255, 255, 0.72); letter-spacing: 1px; }
+    .widget.analog .digital-block { display: none; }
+    .widget.digital .analog-block { display: none; }
+
+    /* ---- 表盘模式 ---- */
+    .analog-block { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    #analog-svg { display: block; }
+    .analog-date { font-size: 12px; color: rgba(255, 255, 255, 0.72); letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+  <div class="widget digital" id="widget">
+    <div class="dragbar">
+      时钟
+      <div class="controls">
+        <button id="btn-menu" class="ctrl-btn" title="设置">☰</button>
+        <button id="btn-hide" class="ctrl-btn" title="隐藏本窗口（托盘图标可再显示）">✕</button>
+      </div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div class="settings" id="settings">
+      <div class="row">
+        <span class="row-label">模式</span>
+        <span class="seg" id="seg-mode">
+          <button data-v="digital">数字</button>
+          <button data-v="analog">表盘</button>
+        </span>
+      </div>
+      <div class="row digital-only">
+        <span class="row-label">小时制</span>
+        <span class="seg" id="seg-hour">
+          <button data-v="24">24 时</button>
+          <button data-v="12">12 时</button>
+        </span>
+      </div>
+      <div class="row">
+        <span class="row-label">秒</span>
+        <span class="seg" id="seg-sec">
+          <button data-v="on">显示</button>
+          <button data-v="off">隐藏</button>
+        </span>
+      </div>
+      <div class="row analog-only">
+        <span class="row-label">表盘大小</span>
+        <span class="seg" id="seg-size">
+          <button data-v="120">小</button>
+          <button data-v="150">中</button>
+          <button data-v="180">大</button>
+        </span>
+      </div>
+      <div class="row analog-only">
+        <span class="row-label">刻度</span>
+        <span class="seg" id="seg-roman">
+          <button data-v="num">数字</button>
+          <button data-v="roman">罗马</button>
+        </span>
+      </div>
+      <div class="row analog-only">
+        <span class="row-label">指针颜色</span>
+        <span class="seg" id="seg-color">
+          <button data-v="white">白</button>
+          <button data-v="blue">蓝</button>
+          <button data-v="gold">金</button>
+        </span>
+      </div>
+      <div class="hint">设置即时生效并自动保存</div>
+    </div>
+
+    <div class="content">
+      <!-- 数字模式 -->
+      <div class="digital-block">
+        <div class="time">
+          <span class="hm" id="hm">--:--</span>
+          <span class="suffix" id="suffix"></span>
+          <span class="ss" id="ss"></span>
+        </div>
+        <div class="date" id="date">加载中…</div>
+      </div>
+      <!-- 表盘模式 -->
+      <div class="analog-block">
+        <svg id="analog-svg" width="150" height="150" viewBox="0 0 150 150">
+          <circle cx="75" cy="75" r="72" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" />
+          <g id="ticks"></g>
+          <!-- 小时数字 1~12（由脚本按 数字/罗马 模式动态生成） -->
+          <g id="dial-nums" fill="rgba(255,255,255,0.85)" font-family="Segoe UI, serif" text-anchor="middle"></g>
+          <line id="hand-hour" x1="75" y1="75" x2="75" y2="42" stroke="#ececec" stroke-width="5" stroke-linecap="round" />
+          <line id="hand-min" x1="75" y1="75" x2="75" y2="26" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linecap="round" />
+          <line id="hand-sec" x1="75" y1="82" x2="75" y2="20" stroke="#4a90ff" stroke-width="1.5" stroke-linecap="round" />
+          <circle id="dial-dot" cx="75" cy="75" r="3.5" fill="#4a90ff" />
+        </svg>
+        <div class="analog-date" id="analog-date">加载中…</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+    const store = window.localStorage;
+
+    // ---- 偏好（全部本地持久化） ----
+    const prefs = {
+      analog: store.getItem('clock.analog') === '1',
+      hour12: store.getItem('clock.hour12') === '1',
+      showSeconds: store.getItem('clock.showSeconds') !== '0',
+      dialSize: parseInt(store.getItem('clock.dialSize') || '150', 10),
+      roman: store.getItem('clock.roman') === '1',
+      handColor: store.getItem('clock.handColor') || 'white',
+    };
+    if (![120, 150, 180].includes(prefs.dialSize)) prefs.dialSize = 150;
+    if (!['white', 'blue', 'gold'].includes(prefs.handColor)) prefs.handColor = 'white';
+
+    const HAND_COLORS = { white: '#ececec', blue: '#7ab0ff', gold: '#e0b04a' };
+    const ROMAN = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
+    const ARABIC = ['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+
+    const widget = document.getElementById('widget');
+    const settingsEl = document.getElementById('settings');
+    const svg = document.getElementById('analog-svg');
+    const dialNums = document.getElementById('dial-nums');
+    const elHm = document.getElementById('hm');
+    const elSuffix = document.getElementById('suffix');
+    const elSs = document.getElementById('ss');
+    const elDate = document.getElementById('date');
+    const elAnalogDate = document.getElementById('analog-date');
+    const handHour = document.getElementById('hand-hour');
+    const handMin = document.getElementById('hand-min');
+    const handSec = document.getElementById('hand-sec');
+    const dialDot = document.getElementById('dial-dot');
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const WEEK = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+    // 60 个刻度：整点大刻度（12 个，粗长）+ 分钟小刻度（48 个，细短）
+    (function buildTicks() {
+      const g = document.getElementById('ticks');
+      const NS = 'http://www.w3.org/2000/svg';
+      for (let i = 0; i < 60; i++) {
+        const isHour = i % 5 === 0;
+        const a = (i * 6) * Math.PI / 180; // 6° 间隔
+        const r1 = isHour ? 64 : 67;       // 小刻度更短
+        const r2 = 70;
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('x1', 75 + r1 * Math.sin(a));
+        line.setAttribute('y1', 75 - r1 * Math.cos(a));
+        line.setAttribute('x2', 75 + r2 * Math.sin(a));
+        line.setAttribute('y2', 75 - r2 * Math.cos(a));
+        line.setAttribute('stroke', isHour ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.28)');
+        line.setAttribute('stroke-width', isHour ? '2' : '1');
+        g.appendChild(line);
+      }
+    })();
+
+    function dateText(now) {
+      return now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日 ' + WEEK[now.getDay()];
+    }
+
+    // ---- 数字模式 ----
+    function renderDigital() {
+      const now = new Date();
+      let h = now.getHours();
+      let suffix = '';
+      if (prefs.hour12) {
+        suffix = h < 12 ? 'AM' : 'PM';
+        h = h % 12;
+        if (h === 0) h = 12;
+      }
+      elHm.textContent = pad(h) + ':' + pad(now.getMinutes());
+      elSuffix.textContent = suffix;
+      elSs.textContent = prefs.showSeconds ? ':' + pad(now.getSeconds()) : '';
+      elDate.textContent = dateText(now);
+    }
+
+    // ---- 表盘模式（秒针平滑） ----
+    function renderAnalog() {
+      const now = new Date();
+      const s = now.getSeconds() + now.getMilliseconds() / 1000;
+      const m = now.getMinutes() + s / 60;
+      const h = (now.getHours() % 12) + m / 60;
+      handSec.style.display = prefs.showSeconds ? '' : 'none';
+      handSec.setAttribute('transform', 'rotate(' + s * 6 + ' 75 75)');
+      handMin.setAttribute('transform', 'rotate(' + m * 6 + ' 75 75)');
+      handHour.setAttribute('transform', 'rotate(' + h * 30 + ' 75 75)');
+      elAnalogDate.textContent = dateText(now);
+    }
+
+    // ---- 外观应用 ----
+    function applyLooks() {
+      widget.classList.toggle('analog', prefs.analog);
+      widget.classList.toggle('digital', !prefs.analog);
+      // 表盘大小
+      svg.setAttribute('width', prefs.dialSize);
+      svg.setAttribute('height', prefs.dialSize);
+      // 刻度文字：全部 12 个小时数字（数字 / 罗马），画在刻度内侧
+      dialNums.innerHTML = '';
+      const NS = 'http://www.w3.org/2000/svg';
+      const labels = prefs.roman ? ROMAN : ARABIC;
+      const fontSize = prefs.roman ? 10 : 12;
+      const r = 56; // 数字圆周半径（刻度内圈）
+      for (let i = 0; i < 12; i++) {
+        const a = (i * 30) * Math.PI / 180;
+        const t = document.createElementNS(NS, 'text');
+        t.textContent = labels[i];
+        t.setAttribute('x', 75 + r * Math.sin(a));
+        t.setAttribute('y', 75 - r * Math.cos(a) + fontSize * 0.36); // 基线补偿使数字居中
+        t.setAttribute('font-size', String(fontSize));
+        dialNums.appendChild(t);
+      }
+      // 指针颜色（时针分针用所选色，秒针保持蓝色强调）
+      const c = HAND_COLORS[prefs.handColor];
+      handHour.setAttribute('stroke', c);
+      handMin.setAttribute('stroke', c);
+      fitWindow();
+    }
+
+    // 让窗口尺寸刚好包住内容，避免表盘/日期被裁掉
+    // 高度 = 拖动条 36 + 内容上下内边距 8+16 + 表盘 + 间距 8 + 日期 18
+    function fitWindow() {
+      if (!window.widgetApi) return; // 开发时若 preload 未加载，跳过（不报错）
+      let w, h;
+      if (prefs.analog) {
+        w = Math.max(prefs.dialSize + 48, 240);
+        h = 36 + 8 + prefs.dialSize + 8 + 18 + 16;
+      } else {
+        w = 320;
+        h = 36 + 8 + 52 + 6 + 20 + 16; // 大号时间 + 日期
+      }
+      window.widgetApi.resize(w, h);
+    }
+
+    // ---- 设置面板 UI ----
+    function syncSettings() {
+      const set = (id, on) => {
+        document.querySelectorAll('#' + id + ' button').forEach((b) => {
+          b.classList.toggle('on', b.dataset.v === on);
+        });
+      };
+      set('seg-mode', prefs.analog ? 'analog' : 'digital');
+      set('seg-hour', prefs.hour12 ? '12' : '24');
+      set('seg-sec', prefs.showSeconds ? 'on' : 'off');
+      set('seg-size', String(prefs.dialSize));
+      set('seg-roman', prefs.roman ? 'roman' : 'num');
+      set('seg-color', prefs.handColor);
+    }
+
+    function bindSeg(id, fn) {
+      document.querySelectorAll('#' + id + ' button').forEach((b) => {
+        b.addEventListener('click', () => { fn(b.dataset.v); });
+      });
+    }
+
+    bindSeg('seg-mode', (v) => {
+      prefs.analog = v === 'analog';
+      store.setItem('clock.analog', prefs.analog ? '1' : '0');
+      syncSettings(); applyLooks();
+    });
+    bindSeg('seg-hour', (v) => {
+      prefs.hour12 = v === '12';
+      store.setItem('clock.hour12', prefs.hour12 ? '1' : '0');
+      syncSettings(); renderDigital();
+    });
+    bindSeg('seg-sec', (v) => {
+      prefs.showSeconds = v === 'on';
+      store.setItem('clock.showSeconds', prefs.showSeconds ? '1' : '0');
+      syncSettings(); renderDigital();
+    });
+    bindSeg('seg-size', (v) => {
+      prefs.dialSize = parseInt(v, 10);
+      store.setItem('clock.dialSize', String(prefs.dialSize));
+      syncSettings(); applyLooks();
+    });
+    bindSeg('seg-roman', (v) => {
+      prefs.roman = v === 'roman';
+      store.setItem('clock.roman', prefs.roman ? '1' : '0');
+      syncSettings(); applyLooks();
+    });
+    bindSeg('seg-color', (v) => {
+      prefs.handColor = v;
+      store.setItem('clock.handColor', v);
+      syncSettings(); applyLooks();
+    });
+
+    // ☰ 开关设置面板；点面板外关闭
+    document.getElementById('btn-menu').addEventListener('click', (e) => {
+      e.stopPropagation();
+      settingsEl.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (settingsEl.classList.contains('open') && !settingsEl.contains(e.target)) {
+        settingsEl.classList.remove('open');
+      }
+    });
+
+    // 隐藏本窗口（主进程拦截为 hide）
+    document.getElementById('btn-hide').addEventListener('click', () => window.close());
+
+    syncSettings();
+    applyLooks();
+    renderDigital();
+    setInterval(() => { if (!prefs.analog) renderDigital(); }, 1000);
+    (function loop() {
+      if (prefs.analog) renderAnalog();
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+</html>

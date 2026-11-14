@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>便签窗口</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: transparent; overflow: hidden; }
+    .widget {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      background: rgba(24, 26, 32, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      overflow: hidden;
+      color: #ececec;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+    /* 拖动条：仅这块 36px 区域可拖动窗口 */
+    .dragbar {
+      flex: none;
+      height: 36px;
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: rgba(255, 255, 255, 0.55);
+    }
+    .dragbar .title { flex: 1; }
+    /* 拖动条上的按钮：必须覆盖为 no-drag */
+    .dragbar .controls {
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+    .ctrl-btn {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.75);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .ctrl-btn:hover { background: rgba(255, 255, 255, 0.14); }
+    /* 正文区域不可拖动（列表、输入框、按钮全在这里） */
+    .content {
+      flex: 1;
+      -webkit-app-region: no-drag;
+      overflow-y: auto;
+      padding: 10px 12px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+    .content::-webkit-scrollbar { width: 6px; }
+    .content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+    .empty {
+      margin: auto;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+      text-align: center;
+      line-height: 1.8;
+    }
+
+    .note {
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      user-select: text;
+    }
+    .note.pinned { border-color: rgba(255, 214, 102, 0.65); }
+    .note textarea {
+      width: 100%;
+      min-height: 56px;
+      resize: vertical;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: #f2f2f2;
+      font-size: 13px;
+      font-family: inherit;
+      line-height: 1.5;
+      user-select: text;
+    }
+    .note textarea::placeholder { color: rgba(255, 255, 255, 0.35); }
+    .note-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .swatches { display: flex; gap: 5px; flex: 1; }
+    .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      cursor: pointer;
+      padding: 0;
+    }
+    .swatch.active { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 1px; }
+    .ts {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.4);
+      white-space: nowrap;
+    }
+    .tool-btn {
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 12px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 5px;
+      line-height: 1;
+    }
+    .tool-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .tool-btn.on { color: #ffd666; }
+    .del-btn:hover { background: rgba(255, 80, 80, 0.35); color: #fff; }
+
+    /* 底部提示条（已保存 / 删除可撤销） */
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      background: rgba(34, 37, 44, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.85);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      opacity: 0;
+      transition: opacity 0.25s;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 10;
+    }
+    .toast.show { opacity: 1; pointer-events: auto; }
+    .toast button {
+      border: none;
+      background: rgba(74, 144, 255, 0.35);
+      color: #fff;
+      border-radius: 5px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .toast button:hover { background: rgba(74, 144, 255, 0.6); }
+  </style>
+</head>
+<body>
+  <div class="widget">
+    <div class="dragbar">
+      <span class="title">便签</span>
+      <div class="controls">
+        <button id="btn-new" class="ctrl-btn" title="新建便签">＋ 新建</button>
+        <button id="btn-hide" class="ctrl-btn" title="隐藏本窗口（托盘图标可再显示）">✕</button>
+      </div>
+    </div>
+    <div class="content" id="list">
+      <div class="toast" id="toast"><span id="toast-text"></span><button id="toast-btn" style="display:none">撤销</button></div>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+    // 便签数据存本窗口 localStorage（Electron userData 本地文件，不联网、不同步）
+    const STORE_KEY = 'note.items';
+    const COLORS = [
+      { id: 'slate', bg: 'rgba(70, 78, 92, 0.55)' },    // 灰蓝
+      { id: 'yellow', bg: 'rgba(196, 158, 46, 0.55)' }, // 黄
+      { id: 'green', bg: 'rgba(66, 148, 96, 0.55)' },   // 绿
+      { id: 'red', bg: 'rgba(178, 74, 74, 0.55)' },     // 红
+      { id: 'purple', bg: 'rgba(130, 96, 176, 0.55)' }, // 紫
+    ];
+
+    const listEl = document.getElementById('list');
+    const toastEl = document.getElementById('toast');
+    const toastText = document.getElementById('toast-text');
+    const toastBtn = document.getElementById('toast-btn');
+
+    let notes = load();   // [{ id, text, color, pinned, updatedAt }]
+    let saveTimer = null; // 防抖定时器
+    let toastTimer = null;
+    let undoData = null;  // 撤销快照
+
+    function load() {
+      try {
+        const arr = JSON.parse(window.localStorage.getItem(STORE_KEY) || '[]');
+        if (Array.isArray(arr)) {
+          return arr.filter((n) => n && typeof n.id === 'string')
+                    .map((n) => ({
+                      id: n.id,
+                      text: typeof n.text === 'string' ? n.text : '',
+                      color: COLORS.some((c) => c.id === n.color) ? n.color : 'slate',
+                      pinned: !!n.pinned,
+                      updatedAt: Number.isFinite(n.updatedAt) ? n.updatedAt : 0,
+                    }));
+        }
+      } catch { /* 损坏数据当空处理 */ }
+      return [];
+    }
+
+    // 防抖 500ms 自动保存
+    function scheduleSave() {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saveTimer = null;
+        window.localStorage.setItem(STORE_KEY, JSON.stringify(notes));
+        showToast('已自动保存', null, 1200);
+      }, 500);
+    }
+
+    function colorBg(id) {
+      return (COLORS.find((c) => c.id === id) || COLORS[0]).bg;
+    }
+
+    function fmtTs(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      const pad = (n) => String(n).padStart(2, '0');
+      return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    // 底部提示：msg 文案；undo 存撤销回调（传 null 表示纯提示）
+    function showToast(msg, undo, duration) {
+      toastText.textContent = msg;
+      undoData = undo || null;
+      toastBtn.style.display = undo ? '' : 'none';
+      toastEl.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.classList.remove('show');
+        undoData = null;
+      }, duration || 5000);
+    }
+
+    toastBtn.addEventListener('click', () => {
+      if (undoData) {
+        notes = undoData();
+        undoData = null;
+        toastEl.classList.remove('show');
+        render();
+        scheduleSave();
+      }
+    });
+
+    // 排序：置顶在前，其余保持原顺序
+    function sorted() {
+      return [...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+    }
+
+    function render() {
+      // 清掉旧卡片但保留 toast 元素
+      listEl.querySelectorAll('.note, .empty').forEach((el) => el.remove());
+      if (notes.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.innerHTML = '还没有便签<br>点右上角「＋ 新建」开始记录';
+        listEl.appendChild(empty);
+        return;
+      }
+      for (const note of sorted()) {
+        const card = document.createElement('div');
+        card.className = 'note' + (note.pinned ? ' pinned' : '');
+        card.style.background = colorBg(note.color);
+
+        const ta = document.createElement('textarea');
+        ta.placeholder = '写点什么…';
+        ta.value = note.text;
+        ta.spellcheck = false;
+        // 输入即触发防抖保存；同时把文本写回数据
+        ta.addEventListener('input', () => {
+          note.text = ta.value;
+          note.updatedAt = Date.now();
+          tsEl.textContent = '更新 ' + fmtTs(note.updatedAt);
+          scheduleSave();
+        });
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'note-toolbar';
+
+        const swatches = document.createElement('div');
+        swatches.className = 'swatches';
+        for (const c of COLORS) {
+          const sw = document.createElement('button');
+          sw.className = 'swatch' + (c.id === note.color ? ' active' : '');
+          sw.title = '切换颜色';
+          sw.style.background = c.bg;
+          sw.addEventListener('click', () => {
+            note.color = c.id;
+            note.updatedAt = Date.now();
+            card.style.background = c.bg;
+            swatches.querySelectorAll('.swatch').forEach((el) => el.classList.remove('active'));
+            sw.classList.add('active');
+            scheduleSave();
+          });
+          swatches.appendChild(sw);
+        }
+
+        // 更新时间戳
+        const tsEl = document.createElement('span');
+        tsEl.className = 'ts';
+        tsEl.title = '最后更新时间';
+        tsEl.textContent = note.updatedAt ? '更新 ' + fmtTs(note.updatedAt) : '';
+
+        // 置顶按钮
+        const pin = document.createElement('button');
+        pin.className = 'tool-btn' + (note.pinned ? ' on' : '');
+        pin.title = note.pinned ? '取消置顶' : '置顶这条便签';
+        pin.textContent = '📌';
+        pin.addEventListener('click', () => {
+          note.pinned = !note.pinned;
+          render();
+          scheduleSave();
+        });
+
+        // 删除按钮（软删除 + 5 秒内可撤销）
+        const del = document.createElement('button');
+        del.className = 'tool-btn del-btn';
+        del.title = '删除这条便签（5 秒内可撤销）';
+        del.textContent = '✕';
+        del.addEventListener('click', () => {
+          const snapshot = [...notes];
+          const idx = notes.findIndex((n) => n.id === note.id);
+          if (idx >= 0) notes.splice(idx, 1);
+          render();
+          scheduleSave();
+          showToast('已删除 1 条便签', () => snapshot, 5000);
+        });
+
+        toolbar.appendChild(swatches);
+        toolbar.appendChild(tsEl);
+        toolbar.appendChild(pin);
+        toolbar.appendChild(del);
+        card.appendChild(ta);
+        card.appendChild(toolbar);
+        listEl.appendChild(card);
+      }
+    }
+
+    document.getElementById('btn-new').addEventListener('click', () => {
+      notes.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+        text: '',
+        color: 'yellow',
+        pinned: false,
+        updatedAt: Date.now(),
+      });
+      render();
+      scheduleSave();
+      // 聚焦新便签的输入框，直接开始输入
+      const cards = listEl.querySelectorAll('.note textarea');
+      if (cards.length) cards[cards.length - 1].focus();
+    });
+
+    // 隐藏本窗口：window.close() 被主进程拦截为 hide，程序继续在托盘运行
+    document.getElementById('btn-hide').addEventListener('click', () => window.close());
+
+    render();
+  </script>
+</body>
+</html>
