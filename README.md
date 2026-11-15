@@ -99,6 +99,18 @@ clock-note-widget/
 └── package.json       # 运行/打包配置
 ```
 
+## 常见问题（FAQ）
+
+**双击 exe 报错 `Invalid file descriptor to ICU data received` / 闪退？**
+
+这不是应用的问题。如果你是从 **WorkBuddy、VS Code、Cursor 等 Electron 应用的内置终端或文件预览面板**里启动 exe，进程会继承 `ELECTRON_RUN_AS_NODE=1` 环境变量，导致 exe 被迫以 Node 模式运行而初始化失败。
+
+解决办法：把 exe 放到任意文件夹，用**资源管理器双击**运行（或创建桌面快捷方式），即可正常启动。
+
+**便携版双击后 8 秒左右才出现窗口？**
+
+便携版单文件 exe 每次启动要先自解压到临时目录，首次或机械盘上会慢几秒，属正常现象。想秒开就用安装版（Setup）。
+
 ## 已知限制
 
 - 无边框透明窗口在个别旧显卡驱动/远程桌面下可能显示黑底（Electron 已知问题）
