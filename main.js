@@ -254,7 +254,21 @@ function createTray() {
 }
 
 // ---------- 应用生命周期 ----------
+// 单实例锁：重复启动时唤起已有实例的窗口，而不是再开一套进程（避免托盘图标与数据写入冲突）
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 用户再次双击 exe：把两个窗口都显示出来
+    for (const win of [clockWindow, noteWindow]) {
+      if (win && !win.isDestroyed()) win.show();
+    }
+  });
+}
+
 app.whenReady().then(() => {
+  app.setAppUserModelId('com.local.clock-note-widget'); // 任务管理器/通知里显示正确应用名
   loadSettings();
   clockWindow = createWidgetWindow('clock', WINDOW_DEFS.clock);
   noteWindow = createWidgetWindow('note', WINDOW_DEFS.note);

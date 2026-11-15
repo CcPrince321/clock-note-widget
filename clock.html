@@ -401,7 +401,7 @@
       syncSettings(); applyLooks();
     });
 
-    // ☰ 开关设置面板；点面板外关闭
+    // ☰ 开关设置面板；点面板外关闭；Esc 关闭
     document.getElementById('btn-menu').addEventListener('click', (e) => {
       e.stopPropagation();
       settingsEl.classList.toggle('open');
@@ -411,6 +411,9 @@
         settingsEl.classList.remove('open');
       }
     });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') settingsEl.classList.remove('open');
+    });
 
     // 隐藏本窗口（主进程拦截为 hide）
     document.getElementById('btn-hide').addEventListener('click', () => window.close());
@@ -418,9 +421,15 @@
     syncSettings();
     applyLooks();
     renderDigital();
-    setInterval(() => { if (!prefs.analog) renderDigital(); }, 1000);
+    // 窗口隐藏时暂停刷新（省 CPU），重新显示时立即刷一次
+    setInterval(() => { if (!prefs.analog && !document.hidden) renderDigital(); }, 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        if (prefs.analog) renderAnalog(); else renderDigital();
+      }
+    });
     (function loop() {
-      if (prefs.analog) renderAnalog();
+      if (prefs.analog && !document.hidden) renderAnalog(); // 隐藏时不逐帧渲染
       requestAnimationFrame(loop);
     })();
   </script>
