@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>B站粉丝窗口</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { background: transparent; overflow: hidden; }
+    body { width: 300px; }
+    .widget {
+      position: relative;
+      width: 100%;
+      background: rgba(24, 26, 32, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      overflow: hidden;
+      color: #ececec;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+    /* 拖动条：仅这块 36px 区域可拖动窗口 */
+    .dragbar {
+      height: 36px;
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: rgba(255, 255, 255, 0.55);
+    }
+    .dragbar .controls {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+    .ctrl-btn {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.75);
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .ctrl-btn:hover { background: rgba(255, 255, 255, 0.14); }
+    .ctrl-btn:disabled { opacity: 0.4; cursor: default; }
+
+    /* 正文区域不可拖动 */
+    .content { -webkit-app-region: no-drag; padding: 2px 16px 16px; }
+    .total-label { font-size: 11px; color: rgba(255, 255, 255, 0.5); letter-spacing: 1px; }
+    .total-num {
+      font-size: 30px; font-weight: 600; letter-spacing: 1px;
+      font-variant-numeric: tabular-nums; line-height: 1.25;
+    }
+    .cards { display: flex; gap: 10px; margin-top: 10px; }
+    .card {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 9px 10px;
+    }
+    .card .k { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+    .card .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .up { color: #ff7a90; }     /* 增加：红（中文习惯） */
+    .down { color: #6fd39b; }   /* 减少：绿 */
+    .neutral { color: #ececec; }
+    .net {
+      margin-top: 10px; font-size: 12px;
+      color: rgba(255, 255, 255, 0.72);
+      display: flex; justify-content: space-between;
+    }
+    .net b { font-variant-numeric: tabular-nums; }
+    .meta { margin-top: 10px; font-size: 10px; line-height: 1.6; color: rgba(255, 255, 255, 0.38); }
+    .err { margin-top: 8px; font-size: 10px; line-height: 1.5; color: #ff9a9a; word-break: break-all; }
+
+    /* 首次配置态 */
+    .setup-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .setup-desc { font-size: 11px; color: rgba(255, 255, 255, 0.6); line-height: 1.6; margin-bottom: 10px; }
+    .setup-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #ececec;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      -webkit-app-region: no-drag;
+    }
+    .setup-input:focus { border-color: rgba(122, 176, 255, 0.7); }
+    .primary-btn {
+      margin-top: 10px; width: 100%;
+      border: 1px solid rgba(122, 176, 255, 0.6);
+      background: rgba(74, 144, 255, 0.28);
+      color: #fff;
+      border-radius: 8px; padding: 8px 10px;
+      font-size: 12px; cursor: pointer; font-family: inherit;
+    }
+    .primary-btn:hover { background: rgba(74, 144, 255, 0.42); }
+    .primary-btn:disabled { opacity: 0.45; cursor: default; }
+    .howto { margin-top: 10px; font-size: 10px; line-height: 1.7; color: rgba(255, 255, 255, 0.4); }
+    .howto b { color: rgba(255, 255, 255, 0.65); }
+    .safe { margin-top: 8px; font-size: 10px; color: rgba(111, 211, 155, 0.85); }
+
+    /* 设置面板 */
+    .settings {
+      position: absolute; top: 40px; right: 10px; width: 228px;
+      background: rgba(34, 37, 44, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px; padding: 10px 12px; z-index: 10;
+      display: none; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      -webkit-app-region: no-drag; font-size: 11px;
+    }
+    .settings.open { display: block; }
+    .settings .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 0; gap: 8px;
+    }
+    .settings .row + .row { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+    .settings .k { color: rgba(255, 255, 255, 0.55); white-space: nowrap; }
+    .settings .v { color: rgba(255, 255, 255, 0.85); font-family: Consolas, monospace; }
+    .link-btn {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: transparent; color: rgba(255, 255, 255, 0.75);
+      border-radius: 6px; padding: 4px 8px;
+      font-size: 11px; cursor: pointer; font-family: inherit;
+    }
+    .link-btn:hover { background: rgba(255, 255, 255, 0.12); }
+    .link-btn.danger:hover { background: rgba(255, 90, 90, 0.22); border-color: rgba(255, 90, 90, 0.5); }
+    .settings .note { margin-top: 6px; font-size: 10px; line-height: 1.6; color: rgba(255, 255, 255, 0.38); }
+  </style>
+</head>
+<body>
+  <div class="widget" id="widget">
+    <div class="dragbar">
+      B站粉丝
+      <div class="controls">
+        <button id="btn-refresh" class="ctrl-btn" title="立即刷新">↻</button>
+        <button id="btn-menu" class="ctrl-btn" title="设置">☰</button>
+        <button id="btn-hide" class="ctrl-btn" title="隐藏本窗口（托盘可再显示）">✕</button>
+      </div>
+    </div>
+
+    <!-- 数据态 -->
+    <div class="content" id="view-data" hidden>
+      <div class="total-label">总粉丝</div>
+      <div class="total-num" id="total-num">—</div>
+      <div class="cards">
+        <div class="card">
+          <div class="k">涨粉（新增关注）</div>
+          <div class="v up" id="follow-num">—</div>
+        </div>
+        <div class="card">
+          <div class="k">掉粉（取消关注）</div>
+          <div class="v down" id="unfollow-num">—</div>
+        </div>
+      </div>
+      <div class="net">
+        <span>今日净变化</span>
+        <b id="net-num">—</b>
+      </div>
+      <div class="meta" id="meta">—</div>
+      <div class="err" id="err" hidden></div>
+    </div>
+
+    <!-- 首次配置态 -->
+    <div class="content" id="view-setup" hidden>
+      <div class="setup-title">首次使用：连接你的 B 站账号</div>
+      <div class="setup-desc">粉丝增减来自 B 站创作中心，需要你本人的登录凭证 SESSDATA。</div>
+      <input id="sess-input" class="setup-input" type="password" placeholder="粘贴 SESSDATA（不会回显）" autocomplete="off" spellcheck="false" />
+      <button id="btn-save" class="primary-btn">保存并刷新</button>
+      <div class="howto">
+        获取方式：浏览器登录 bilibili.com → F12 打开开发者工具 → 应用 / Application → Cookies → 找到 <b>SESSDATA</b> → 复制它的值粘贴到上方。
+      </div>
+      <div class="safe">凭证只保存在本机 %APPDATA%，不写进源码、不上传、不进 Git 仓库。</div>
+      <div class="err" id="setup-err" hidden></div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div class="settings" id="settings">
+      <div class="row"><span class="k">登录凭证</span><span class="v" id="mask">未配置</span></div>
+      <div class="row"><span class="k">UID</span><span class="v" id="mid">—</span></div>
+      <div class="row">
+        <span class="k">凭证管理</span>
+        <span>
+          <button id="btn-repaste" class="link-btn">重新粘贴</button>
+          <button id="btn-clear" class="link-btn danger">清除</button>
+        </span>
+      </div>
+      <div class="note">创作中心分项数据为 T+1（次日中午更新），窗口显示最近有数据那一天；「今日净变化」由公开接口每 10 分钟采样粉丝总数累计得出。</div>
+    </div>
+  </div>
+
+  <script>
+    const api = window.fansApi;
+    const widgetApi = window.widgetApi;
+    const $ = (id) => document.getElementById(id);
+    let state = null;
+
+    function num(n) { return Number(n || 0).toLocaleString('zh-CN'); }
+    function signed(n) {
+      const v = Number(n || 0);
+      return (v > 0 ? '+' : '') + v.toLocaleString('zh-CN');
+    }
+    function dayText(d8) {
+      return /^\d{8}$/.test(d8 || '') ? d8.slice(4, 6) + '-' + d8.slice(6, 8) : '—';
+    }
+    function timeText(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      const p = (n) => String(n).padStart(2, '0');
+      return p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    function fitWindow() {
+      const h = Math.ceil($('widget').getBoundingClientRect().height);
+      if (widgetApi && widgetApi.resize) widgetApi.resize(300, Math.max(h + 2, 120));
+    }
+
+    function render(s) {
+      state = s;
+      const needSetup = !s.hasSessdata;
+      $('view-data').hidden = needSetup;
+      $('view-setup').hidden = !needSetup;
+      $('mask').textContent = s.sessdataMask || '未配置';
+      $('mid').textContent = s.mid || '—';
+
+      if (!needSetup) {
+        $('total-num').textContent = s.totalFans ? num(s.totalFans) : '—';
+        $('follow-num').textContent = '+' + num(s.follow);
+        $('unfollow-num').textContent = '-' + num(s.unfollow);
+        const net = Number(s.todayNet || 0);
+        const netEl = $('net-num');
+        netEl.textContent = signed(net);
+        netEl.className = net > 0 ? 'up' : net < 0 ? 'down' : 'neutral';
+        $('meta').textContent =
+          '分项数据日期 ' + dayText(s.date) + '（T+1） · 更新于 ' + timeText(s.updatedAt) + ' · 每 10 分钟自动刷新';
+        const err = s.error && s.error !== '尚未配置 SESSDATA' ? s.error : '';
+        $('err').hidden = !err;
+        $('err').textContent = err ? '部分数据获取失败：' + err : '';
+      } else {
+        $('setup-err').hidden = true;
+      }
+      fitWindow();
+    }
+
+    function setBusy(busy) {
+      $('btn-refresh').disabled = busy;
+      $('btn-save').disabled = busy;
+    }
+
+    async function doRefresh() {
+      if (!api) return;
+      setBusy(true);
+      try {
+        render(await api.refresh());
+      } catch (e) {
+        $('err').hidden = false;
+        $('err').textContent = '刷新失败：' + e.message;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function boot() {
+      if (!api) {
+        $('view-setup').hidden = false;
+        $('setup-err').hidden = false;
+        $('setup-err').textContent = '预加载接口未就绪，请用 npm start 启动。';
+        return;
+      }
+      try {
+        const s = await api.getState();
+        render(s);
+        api.onUpdated((d) => render(d));
+        if (s.hasSessdata) doRefresh(); // 已配置：启动拉一次最新数据
+      } catch (e) {
+        $('view-setup').hidden = false;
+        $('setup-err').hidden = false;
+        $('setup-err').textContent = e.message;
+      }
+    }
+
+    $('btn-refresh').addEventListener('click', doRefresh);
+    $('btn-hide').addEventListener('click', () => window.close());
+    $('btn-menu').addEventListener('click', (e) => {
+      e.stopPropagation();
+      $('settings').classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if ($('settings').classList.contains('open') &&
+          !$('settings').contains(e.target) &&
+          e.target.id !== 'btn-menu') {
+        $('settings').classList.remove('open');
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') $('settings').classList.remove('open');
+    });
+
+    $('btn-save').addEventListener('click', async () => {
+      const v = $('sess-input').value.trim();
+      if (!v) {
+        $('setup-err').hidden = false;
+        $('setup-err').textContent = '请先粘贴 SESSDATA';
+        return;
+      }
+      setBusy(true);
+      $('setup-err').hidden = true;
+      try {
+        const s = await api.setSessdata(v);
+        $('sess-input').value = '';
+        render(s);
+      } catch (e) {
+        $('setup-err').hidden = false;
+        $('setup-err').textContent = e.message;
+      } finally {
+        setBusy(false);
+      }
+    });
+    $('sess-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') $('btn-save').click();
+    });
+    $('btn-clear').addEventListener('click', async () => {
+      render(await api.clear());
+      $('settings').classList.remove('open');
+    });
+    $('btn-repaste').addEventListener('click', () => {
+      $('settings').classList.remove('open');
+      render({ ...(state || {}), hasSessdata: false, sessdataMask: '' });
+      $('sess-input').focus();
+    });
+
+    window.addEventListener('resize', fitWindow);
+    boot();
+  </script>
+</body>
+</html>

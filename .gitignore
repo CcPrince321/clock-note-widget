@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.log
 .npm-cache/
+
+# B 站登录凭证与本地缓存（只应存在于 %APPDATA%，绝不能提交）
+fans-config.json
+fans-cache.json
